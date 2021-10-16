@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
 using System.Linq;
+using System.Management;
 using System.ServiceProcess;
 using System.Text;
 using System.Timers;
@@ -95,6 +96,16 @@ namespace WinBatService
             {
                 if (batProces != null)
                 {
+
+                    try
+                    {
+                        KillProcessAndChildrens(batProces.Id);
+                    }
+                    catch (Exception iex)
+                    {
+                        Logger.Instance.LogError("Error while killing process hierarchy.\r\n" + iex.Message + "\r\n" + iex.StackTrace);
+                    }
+
                     batProces.CancelOutputRead();
                     batProces.CancelErrorRead();
                     batProces.Close();
@@ -109,6 +120,8 @@ namespace WinBatService
                     Logger.Instance.LogInfo(string.Format("Batch process was stopped with exit code: {0}", exitCode));
 
                     batProces.Dispose();
+
+                    
                 }
                 else
                 {
@@ -121,6 +134,35 @@ namespace WinBatService
             }
 
             batProces = null;
+        }
+
+        private void KillProcessAndChildrens(int pid)
+        {
+            var processSearcher = new ManagementObjectSearcher
+              ("Select * From Win32_Process Where ParentProcessID=" + pid);
+            ManagementObjectCollection processCollection = processSearcher.Get();
+
+            // We must kill child processes first!
+            if (processCollection != null)
+            {
+                foreach (var mo in processCollection)
+                {
+                    KillProcessAndChildrens(Convert.ToInt32(mo["ProcessID"])); //kill child processes(also kills childrens of childrens etc.)
+                }
+            }
+
+            // Then kill parents.
+            try
+            {
+                Logger.Instance.LogInfo(string.Format("Killing process with processId:{0}.", pid));
+
+                var proc = Process.GetProcessById(pid);
+                if (!proc.HasExited) proc.Kill();
+            }
+            catch (ArgumentException)
+            {
+                // Process already exited.
+            }
         }
 
         protected override void OnStart(string[] args)
