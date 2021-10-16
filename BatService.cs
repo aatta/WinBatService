@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.ServiceProcess;
 using System.Text;
+using System.Timers;
 
 namespace WinBatService
 {
@@ -14,6 +15,8 @@ namespace WinBatService
         private Process batProces;
         private bool isStopping = false;
         private string batFilePath;
+        private System.Timers.Timer aTimer;
+        private ElapsedEventHandler timerEventHandler;
 
         public BatService()
         {
@@ -109,7 +112,7 @@ namespace WinBatService
                 }
                 else
                 {
-                    Logger.Instance.LogInfo("Batch process wasn't started.");
+                    Logger.Instance.LogInfo("Batch process wasn't running.");
                 }
             }
             catch (Exception ex)
@@ -149,12 +152,48 @@ namespace WinBatService
 
 
             StartProcess(batFilePath);
+
+            /***********Start monitoring********************/
+            // Create a timer with a ten second interval.
+            var interal = TimeSpan.FromMinutes(1).TotalMilliseconds;
+            aTimer = new Timer(interal);
+
+            // Create event handler
+            timerEventHandler = new ElapsedEventHandler(OnTimedEvent);
+
+            // Hook up the Elapsed event for the timer.
+            aTimer.Elapsed += timerEventHandler;
+
+            // Set the Interval to 2 seconds (2000 milliseconds).
+            aTimer.Interval = interal;
+            aTimer.Enabled = true;
         }
 
         protected override void OnStop()
         {
             isStopping = true;
             StopProcess();
+
+            /****************Stop monitoring****************/
+            aTimer.Elapsed -= timerEventHandler;
+            aTimer.Enabled = false;
+            aTimer.Close();
+            aTimer.Dispose();
+            aTimer = null;
+        }
+
+        private void OnTimedEvent(object sender, ElapsedEventArgs e)
+        {
+            if (batProces == null)
+            {
+                Logger.Instance.LogInfo(string.Format("Monitor is starting process({0}) again...", batFilePath));
+
+                StartProcess(batFilePath);
+            }
+            else
+            {
+                Logger.Instance.LogInfo(string.Format("Monitor found out that process({0}) is running...", batFilePath));
+            }
         }
 
         //private void Log(string message)
