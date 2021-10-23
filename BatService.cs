@@ -200,16 +200,20 @@ namespace WinBatService
 
             var idleRestartSecsArg = args.FirstOrDefault(ar => ar.StartsWith("--idleRestartSecs"));
 
+            Logger.Instance.LogInfo(string.Format("idleRestartSecsArg: {0}", idleRestartSecsArg));
+
             batFilePath = batFileArg.Split("=".ToCharArray()).ElementAt(1);
             if (batFilePath == null)
                 throw new ArgumentException("batFile parameter wasn't supplied to the service.");
 
-            if (idleRestartSecsArg != null)
+            if (!string.IsNullOrEmpty(idleRestartSecsArg))
             {
                 double tempSecs = 0.0D;
                 if (double.TryParse(idleRestartSecsArg.Split("=".ToCharArray()).ElementAt(1), out tempSecs))
                 {
                     idleRestartSecs = tempSecs;
+
+                    Logger.Instance.LogInfo(string.Format("idleRestartSecs: {0}", idleRestartSecs));
                 }
             }
 
