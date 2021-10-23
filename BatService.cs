@@ -7,6 +7,7 @@ using System.Linq;
 using System.Management;
 using System.ServiceProcess;
 using System.Text;
+using System.Threading.Tasks;
 using System.Timers;
 
 namespace WinBatService
@@ -16,6 +17,8 @@ namespace WinBatService
         private Process batProces;
         private bool isStopping = false;
         private string batFilePath;
+        private double? idleRestartSecs;
+        private DateTime lastStdOutTime = DateTime.UtcNow;
         private System.Timers.Timer aTimer;
         private ElapsedEventHandler timerEventHandler;
 
@@ -62,11 +65,18 @@ namespace WinBatService
             batProces = Process.Start(processInfo);
 
             batProces.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
-                Logger.Instance.LogInfo(e.Data);
+                {
+                    Logger.Instance.LogInfo(e.Data);
+                    lastStdOutTime = DateTime.UtcNow;
+                };
+                
             batProces.BeginOutputReadLine();
 
             batProces.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
-               Logger.Instance.LogError(e.Data);
+               {
+                   Logger.Instance.LogError(e.Data);
+                   lastStdOutTime = DateTime.UtcNow;
+               };
             batProces.BeginErrorReadLine();
 
             batProces.EnableRaisingEvents = true;
@@ -188,10 +198,20 @@ namespace WinBatService
             if (batFileArg == null)
                 throw new ArgumentException("batFile parameter wasn't supplied to the service.");
 
+            var idleRestartSecsArg = args.FirstOrDefault(ar => ar.StartsWith("--idleRestartSecs"));
+
             batFilePath = batFileArg.Split("=".ToCharArray()).ElementAt(1);
             if (batFilePath == null)
                 throw new ArgumentException("batFile parameter wasn't supplied to the service.");
 
+            if (idleRestartSecsArg != null)
+            {
+                double tempSecs = 0.0D;
+                if (double.TryParse(idleRestartSecsArg.Split("=".ToCharArray()).ElementAt(1), out tempSecs))
+                {
+                    idleRestartSecs = tempSecs;
+                }
+            }
 
             StartProcess(batFilePath);
 
@@ -224,11 +244,22 @@ namespace WinBatService
             aTimer = null;
         }
 
-        private void OnTimedEvent(object sender, ElapsedEventArgs e)
+        private async void OnTimedEvent(object sender, ElapsedEventArgs e)
         {
             if (batProces == null)
             {
                 Logger.Instance.LogInfo(string.Format("Monitor is starting process({0}) again...", batFilePath));
+
+                StartProcess(batFilePath);
+            }
+            else if (idleRestartSecs.HasValue && idleRestartSecs.Value > 0 && DateTime.UtcNow.Subtract(lastStdOutTime).TotalSeconds > idleRestartSecs.Value)
+            {
+                Logger.Instance.LogInfo(string.Format("Restarting process due to idle activity. Total inactivity secs:{0}, Idle restart secs: {1}", 
+                    DateTime.UtcNow.Subtract(lastStdOutTime).TotalSeconds, idleRestartSecs.Value));
+
+                StopProcess();
+
+                await Task.Delay(TimeSpan.FromSeconds(30));
 
                 StartProcess(batFilePath);
             }
